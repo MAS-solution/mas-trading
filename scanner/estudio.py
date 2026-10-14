@@ -19,11 +19,15 @@ sys.path.insert(0, os.path.dirname(__file__))
 import metodo  # noqa: E402
 
 DATOS = os.path.join(os.path.dirname(__file__), "..", "datos")
-PARES = ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "AUDUSD", "GBPJPY", "XAUUSD"]
+PARES = ["XAUUSD"]  # foco en oro (para volver a forex: agregar pares y poner REGLA = None)
+# Regla de entrada para oro. Se eligio mirando los 5 anios (aprendizaje y control), asi que el control
+# ya no es una prueba ciega: la prueba real son las senales en vivo desde el 14/10/2026.
+REGLA = {"Dirección": ["Compra"], "Sesión (hora UTC)": ["Cierre / Asia", "Londres", "Londres + NY", "NY tarde"]}
+REGLA_DESDE = "2026-10-14"
 MESES_CONTROL = 18  # los ultimos 18 meses son la muestra de control
 MIN_N = 40
 CUENTA = 10_000
-RIESGOS = [0.25, 0.5, 0.75, 1.0]
+RIESGOS = [0.5, 1.0, 1.5, 2.0]
 DIAS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 FTMO = {
     "2-Step": {"fases": [0.10, 0.05], "diaria": 0.05, "total": 0.10, "min_dias": 4, "arrastre": False, "mejor_dia": None},
@@ -43,6 +47,7 @@ def costo_tramo(x):
 
 FACTORES = {
     "Par": lambda t: t["par"],
+    "Dirección": lambda t: "Compra" if t["d"] == 1 else "Venta",
     "Tipo de entrada": lambda t: f"Tipo {t['tipo']}",
     "OB de": lambda t: t["tf_ob"],
     "4h y 1h alineados": lambda t: "Sí" if t["alineado"] else "No",
@@ -191,12 +196,12 @@ def main():
     ctrl = [t for t in todos if t["abierta"] >= CORTE]
     print("operaciones", len(todos), "aprendizaje", len(apr), "control", len(ctrl), flush=True)
 
-    filtro = elegir_filtro(apr)
+    filtro = REGLA if REGLA is not None else elegir_filtro(apr)
     apr_f = [t for t in apr if cumple(t, filtro)]
     ctrl_f = [t for t in ctrl if cumple(t, filtro)]
     salidas = [{"salida": s[0], "aprendizaje": stats(apr_f, s[0]), "control": stats(ctrl_f, s[0])}
                for s in metodo.SALIDAS]
-    mejor = max(salidas, key=lambda s: s["aprendizaje"]["esperanza"] or -9)["salida"]
+    mejor = metodo.BASE if REGLA is not None else max(salidas, key=lambda s: s["aprendizaje"]["esperanza"] or -9)["salida"]
 
     factores = {}
     for nombre, f in FACTORES.items():
@@ -218,7 +223,8 @@ def main():
         "generado": pd.Timestamp.now(tz="UTC").isoformat(),
         "periodo": [datos_desde.isoformat(), fin_datos.isoformat()], "corte": CORTE.isoformat(),
         "costos": metodo.COSTO, "cuenta": CUENTA,
-        "filtro": filtro, "salida_elegida": mejor,
+        "filtro": filtro, "salida_elegida": mejor, "pares": PARES,
+        "regla_fija": REGLA is not None, "regla_desde": REGLA_DESDE,
         "resumen": {
             "sin_filtro": {"aprendizaje": stats(apr, metodo.BASE), "control": stats(ctrl, metodo.BASE)},
             "con_filtro": {"aprendizaje": stats(apr_f, mejor), "control": stats(ctrl_f, mejor)},

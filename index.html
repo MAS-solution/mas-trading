@@ -58,6 +58,14 @@ tr.fuera td{color:var(--sub);opacity:.6}
 .barras{display:flex;gap:2px;height:140px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;overflow-x:auto;margin-bottom:6px}
 .barras div{flex:1 0 6px;position:relative;border-bottom:0}
 .barras span{position:absolute;left:0;right:0;border-radius:2px}
+.decision{border-radius:12px;padding:16px 18px;margin:14px 0;border:1px solid var(--line);background:#0b1117}
+.decision .titulo{font-size:22px;font-weight:700;margin-bottom:6px}
+.decision.d-ya{border-color:var(--up);background:rgba(38,166,91,.12)}
+.decision.d-ya .titulo{color:var(--up)}
+.decision.d-prep{border-color:var(--warn);background:rgba(240,180,41,.10)}
+.decision.d-prep .titulo{color:var(--warn)}
+.decision.d-no .titulo{color:var(--sub)}
+.decision .regla{margin-top:10px;font-size:12px;color:var(--sub)}
 </style>
 </head>
 <body>
@@ -91,6 +99,7 @@ tr.fuera td{color:var(--sub);opacity:.6}
     <div class="ajustes">Cuenta $<input id="cuenta" type="number" min="100" step="100"> Riesgo %<input id="riesgo" type="number" min="0.05" max="5" step="0.05"></div>
   </div>
   <div id="t-vivo">
+    <div class="decision" id="decision"></div>
     <div class="kpis" id="kpis"></div>
     <div class="grid" id="pares"></div>
     <h3>Señales del método</h3>
@@ -180,7 +189,7 @@ const FASES = {
 async function cargar(){
   const [{ data: snap, error }, { data: sen }, { data: est }] = await Promise.all([
     sb.from('snapshot').select('*').eq('id', 1).maybeSingle(),
-    sb.from('senales').select('*').order('abierta', { ascending: false }).limit(150),
+    sb.from('senales').select('*').eq('par', 'XAUUSD').order('abierta', { ascending: false }).limit(150),
     sb.from('snapshot').select('*').eq('id', 2).maybeSingle(),
   ]);
   if (est) pintarEstudio(est.data);
@@ -193,7 +202,8 @@ async function cargar(){
 function pintarVivo(s, sen){
   const tot = s.total;
   PRECIOS = Object.fromEntries(s.pares.map(p => [p.par, p.precio]));
-  $('generado').textContent = `Actualizado ${fecha(s.generado)} · objetivo ${s.tp_r}R, stop en el extremo del retroceso`;
+  $('generado').textContent = `Oro (XAUUSD) · actualizado ${fecha(s.generado)} · objetivo ${s.tp_r}R, stop en el extremo del retroceso`;
+  pintarDecision(s, sen);
   $('kpis').innerHTML = [
     ['Señales cerradas (60 días)', tot.operaciones],
     ['Acierto', tot.acierto_pct == null ? '–' : tot.acierto_pct + ' %'],
@@ -222,6 +232,60 @@ function pintarVivo(s, sen){
     <td>${t.estado}</td><td class="${t.r>0?'pos':t.r<0?'neg':''}">${t.r ?? ''}</td></tr>`).join('');
 }
 
+// Sesiones en hora UTC (igual que scanner/metodo.py)
+const sesionUTC = h => h < 7 ? 'Asia' : h < 12 ? 'Londres' : h < 16 ? 'Londres + NY' : h < 21 ? 'NY tarde' : 'Cierre / Asia';
+function cumpleRegla(regla, d, sesion){
+  if (!regla) return true;
+  if (regla['Dirección'] && !regla['Dirección'].includes(d === 1 ? 'Compra' : 'Venta')) return false;
+  if (regla['Sesión (hora UTC)'] && !regla['Sesión (hora UTC)'].includes(sesion)) return false;
+  return true;
+}
+function textoRegla(regla, tp){
+  if (!regla || !Object.keys(regla).length) return `Objetivo ${tp}R.`;
+  const lado = (regla['Dirección'] || []).length === 1 ? (regla['Dirección'][0] === 'Compra' ? 'Solo compras (con el 4h alcista)' : 'Solo ventas (con el 4h bajista)') : 'Compras y ventas';
+  const fueraAsia = regla['Sesión (hora UTC)'] && !regla['Sesión (hora UTC)'].includes('Asia');
+  return `<b>Regla oro:</b> ${lado}${fueraAsia ? ' · no abrir entre las 21:00 y las 4:00 (hora Argentina, sesión de Asia)' : ''} · stop en el extremo del retroceso · objetivo ${tp}R (misma distancia que el stop) · una operación por vez.`;
+}
+function pintarDecision(s, sen){
+  const p = s.pares.find(x => x.par === 'XAUUSD');
+  if (!p) return $('decision').innerHTML = '';
+  const e = p.estado, regla = s.regla, ahora = new Date();
+  const sesAhora = sesionUTC(ahora.getUTCHours());
+  const lado = d => d === 1 ? 'COMPRA' : 'VENTA';
+  const n = v => num(v, 'XAUUSD');
+  let clase = 'd-no', titulo, cuerpo;
+  const reciente = e.fase === 'trade_abierto' && (ahora - new Date(e.abierta)) < 90 * 60000;
+  if (e.fase === 'trade_abierto' && reciente && cumpleRegla(regla, e.d, e.sesion)) {
+    clase = 'd-ya'; titulo = `ENTRÁ YA · ${lado(e.d)}`;
+    cuerpo = `Señal de las ${fecha(e.abierta).slice(-5)}. Entrada ${n(e.entrada)} · Stop ${n(e.sl)} · Objetivo ${n(e.tp)} · <b>${lotes('XAUUSD', e.entrada, e.sl)} lotes</b> con tu riesgo.<br>Si el precio ya recorrió más de la mitad del camino al objetivo, no entres.`;
+  } else if (e.fase === 'trade_abierto') {
+    titulo = 'No abrir nada nuevo';
+    cuerpo = `El método tiene una operación en curso desde ${fecha(e.abierta)}${cumpleRegla(regla, e.d, e.sesion) ? '' : ' (no cumplía la regla, era para no tomar)'}: entrada ${n(e.entrada)} · stop ${n(e.sl)} · objetivo ${n(e.tp)}. Hasta que cierre no hay señal nueva.`;
+  } else if (e.fase === 'setup' && e.gatillo != null && cumpleRegla(regla, e.d, sesAhora)) {
+    clase = 'd-prep'; titulo = `PREPARATE · ${lado(e.d)}`;
+    cuerpo = `Setup tipo ${e.tipo} en OB de ${e.tf_ob}. <b>Entrá cuando una vela de 5 minutos cierre ${e.d === 1 ? 'por encima de' : 'por debajo de'} ${n(e.gatillo)}</b> (vela ${e.d === 1 ? 'verde' : 'roja'}).<br>Stop aprox. ${n(e.sl)} · ${lotes('XAUUSD', e.gatillo, e.sl)} lotes con tu riesgo.`;
+  } else if (['setup', 'en_ob'].includes(e.fase)) {
+    if (cumpleRegla(regla, e.d, sesAhora)) {
+      clase = 'd-prep'; titulo = 'ATENTO · precio en zona';
+      cuerpo = `${lado(e.d)} posible: el precio está en el OB de ${e.tf_ob} (${n(e.ob[0])}–${n(e.ob[1])}). Esperando ${e.esperando}. Todavía no se entra.`;
+    } else {
+      titulo = 'NO ENTRAR';
+      cuerpo = `Hay un setup de ${lado(e.d).toLowerCase()} en el OB de ${e.tf_ob}, pero no cumple la regla (${e.d !== 1 && regla && regla['Dirección'] && !regla['Dirección'].includes('Venta') ? 'en oro solo se toman compras' : 'horario de Asia'}).`;
+    }
+  } else {
+    titulo = 'NO ENTRAR · esperar';
+    const motivo = e.d === -1 && regla && regla['Dirección'] && !regla['Dirección'].includes('Venta')
+      ? 'El 4h está bajista y en oro solo se toman compras: hay que esperar que el 4h vuelva a alcista.'
+      : e.fase === 'acercandose' ? `El precio se acerca al OB de ${e.tf_ob} (${n(e.ob[0])}–${n(e.ob[1])}), a ${e.distancia_pct.toFixed(2)} %.`
+      : e.fase === 'lejos' ? `El OB más cercano a favor (${e.tf_ob}, ${n(e.ob[0])}–${n(e.ob[1])}) está a ${e.distancia_pct.toFixed(2)} %.`
+      : 'No hay order block válido a favor de la tendencia de 4h.';
+    cuerpo = motivo;
+  }
+  const spot = p.ajuste_spot ? ` Precios pasados a oro spot (FTMO); pueden diferir unos centavos de tu plataforma.` : ' Precios del futuro de oro (no se pudo leer el spot): pueden estar unos dólares arriba de FTMO.';
+  $('decision').className = 'decision ' + clase;
+  $('decision').innerHTML = `<div class="titulo">${titulo}</div><div>${cuerpo}</div><div class="regla">${textoRegla(regla, s.tp_r)}${spot}</div>`;
+}
+
 const pct = v => v == null ? '–' : v.toFixed(1).replace('.', ',') + ' %';
 const rr = v => v == null ? '–' : `<span class="${v>=0?'pos':'neg'}">${v>0?'+':''}${String(v).replace('.', ',')}</span>`;
 const fila = x => `<td class="c">${x.n}</td><td class="c">${pct(x.acierto)}</td><td class="c">${rr(x.esperanza)}</td>`;
@@ -243,15 +307,17 @@ function pintarEstudio(e){
     </tbody></table></div></div>`).join('');
   const meses = e.riesgo.control.meses, max = Math.max(1, ...meses.map(m => Math.abs(m[1])));
   $('t-estudio').innerHTML = `
-    <div class="nota">Historia del <b>${dia(e.periodo[0])}</b> al <b>${dia(e.periodo[1])}</b>, velas de 5 minutos, con spread y comisión.
-      Los filtros y la salida se eligen con el período de <b>aprendizaje</b> (antes del ${dia(e.corte)}). El de <b>control</b> (desde esa fecha) no se usó para elegir nada: es la prueba honesta.</div>
+    <div class="nota">${(e.pares || []).join(', ') || 'Todos los pares'} · historia del <b>${dia(e.periodo[0])}</b> al <b>${dia(e.periodo[1])}</b>, velas de 5 minutos, con spread y comisión.
+      ${e.regla_fija
+        ? `La regla se eligió mirando los dos períodos, así que el de <b>control</b> (desde el ${dia(e.corte)}) ya no es una prueba ciega. La prueba real son las señales en vivo desde el ${dia(e.regla_desde)}.`
+        : `Los filtros y la salida se eligen con el período de <b>aprendizaje</b> (antes del ${dia(e.corte)}). El de <b>control</b> (desde esa fecha) no se usó para elegir nada: es la prueba honesta.`}</div>
     <div class="kpis">
       ${caja('Sin filtro · control', r.sin_filtro.control)}
-      ${caja('Con filtro · aprendizaje', r.con_filtro.aprendizaje)}
-      ${caja('Con filtro · control', r.con_filtro.control)}
+      ${caja((e.regla_fija ? 'Con regla' : 'Con filtro') + ' · aprendizaje', r.con_filtro.aprendizaje)}
+      ${caja((e.regla_fija ? 'Con regla' : 'Con filtro') + ' · control', r.con_filtro.control)}
       <div class="kpi"><div class="l">Control con filtro</div><div class="v">${String(e.riesgo.control.caida_max_r).replace('.', ',')} R</div><div class="l">peor caída · hasta ${e.riesgo.control.peor_racha} pérdidas seguidas</div></div>
     </div>
-    <div class="nota"><b>Filtro elegido:</b> ${filtro.length ? filtro.map(([k, v]) => `${k}: ${v.join(', ')}`).join(' · ') : 'ninguno mejora el resultado'}<br>
+    <div class="nota"><b>${e.regla_fija ? 'Regla' : 'Filtro elegido'}:</b> ${filtro.length ? filtro.map(([k, v]) => `${k}: ${v.join(', ')}`).join(' · ') : 'ninguno mejora el resultado'}<br>
       <b>Salida elegida:</b> ${e.salida_elegida}</div>
     <h3>Resultado por mes (control, con filtro), en R</h3>
     <div class="barras">${meses.map(m => `<div title="${m[0]}: ${m[1]} R"><span style="${m[1] >= 0 ? 'bottom' : 'top'}:50%;height:${Math.max(1, Math.abs(m[1]) / max * 50)}%;background:${m[1] >= 0 ? 'var(--up)' : 'var(--down)'}"></span></div>`).join('')}</div>

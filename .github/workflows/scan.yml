@@ -1,12 +1,15 @@
 name: Scanner
 on:
   schedule:
-    - cron: "7 * * * 0-5"   # cada hora, domingo a viernes (forex cerrado el sabado)
+    - cron: "*/10 6-23 * * 1-5"  # cada 10 min en el horario de la regla (4 a 21 hs AR), lun a vie
+    - cron: "7 0-5 * * 1-5"  # madrugada (Asia), cada hora
+    - cron: "7 22,23 * * 0"  # domingo a la noche, apertura
   workflow_dispatch:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 8
+    concurrency: scan
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,3 +20,4 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}

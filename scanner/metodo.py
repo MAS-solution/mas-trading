@@ -24,7 +24,7 @@ SALIDAS = [
     ("3R + BE en 1R", 3.0, 1.0, None),
     ("50 % en 1R + resto 3R con BE", 3.0, 1.0, 1.0),
 ]
-BASE = "2R"
+BASE = "1R"  # oro: objetivo 1R fue la unica salida positiva en aprendizaje y control
 MAX_VELAS = 12 * 24 * 5  # una operacion abierta mas de 5 dias se cierra a mercado
 
 
@@ -191,16 +191,23 @@ def simular(par, df5, df1, df4, r5, r1, r4, desde=None):
     # estado actual (para el tablero en vivo)
     precio = float(c5[-1])
     sesgo = tendencia_en(r4, i4, t5[-1] + pd.Timedelta("5min"), paso4)
+    obj = base[1]
     if vivo:
-        estado = {"fase": "trade_abierto", "tipo": vivo["tipo"], "entrada": vivo["entrada"], "sl": vivo["sl"],
-                  "tp": vivo["entrada"] + vivo["d"] * 2 * abs(vivo["entrada"] - vivo["sl"]),
-                  "abierta": vivo["abierta"].isoformat()}
+        estado = {"fase": "trade_abierto", "d": vivo["d"], "tipo": vivo["tipo"], "entrada": vivo["entrada"],
+                  "sl": vivo["sl"], "tp": vivo["entrada"] + vivo["d"] * obj * abs(vivo["entrada"] - vivo["sl"]),
+                  "abierta": vivo["abierta"].isoformat(), "sesion": vivo["sesion"]}
     elif armado:
-        estado = {"fase": "en_ob" if not armado["fract"] else "setup",
+        estado = {"fase": "en_ob" if not armado["fract"] else "setup", "d": armado["d"],
                   "tipo": min(armado["fract"], 3) or None, "tf_ob": armado["tf"],
                   "ob": [armado["ob"].bajo, armado["ob"].alto], "desde": armado["desde"].isoformat(),
                   "esperando": "rompimiento a favor en 5m" if not armado["fract"]
                   else ("retesteo del OB de 5m" if not armado["retest"] else "cierre con cuerpo fuera de la zona")}
+        z = armado["ob5"]
+        if armado["retest"] and z is not None:
+            # gatillo: la vela de 5m que cierre con cuerpo mas alla de este precio (y a favor) es la entrada
+            dd = armado["d"]
+            estado["gatillo"] = z.alto if dd == 1 else z.bajo
+            estado["sl"] = min(armado["extremo"], z.bajo) if dd == 1 else max(armado["extremo"], z.alto)
     else:
         validos = [(ob, tf) for _, ob, tf in activas if ob.d == sesgo and ob.invalidado is None]
         if validos and sesgo:
@@ -208,7 +215,7 @@ def simular(par, df5, df1, df4, r5, r1, r4, desde=None):
                 return (precio - ob.alto) if sesgo == 1 else (ob.bajo - precio)
             ob, tf = min(validos, key=lambda x: abs(dist(x[0])))
             pct = dist(ob) / precio * 100
-            estado = {"fase": "acercandose" if 0 <= pct <= 0.5 else "lejos",
+            estado = {"fase": "acercandose" if 0 <= pct <= 0.5 else "lejos", "d": sesgo,
                       "tf_ob": tf, "ob": [ob.bajo, ob.alto], "distancia_pct": round(pct, 3)}
         else:
             estado = {"fase": "sin_ob"}
