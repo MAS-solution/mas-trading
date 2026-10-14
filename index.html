@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAS Trading</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1117;--panel:#121b24;--line:#223140;--txt:#e6edf3;--sub:#8b9bab;--acc:#19c3d6;--up:#2fbf71;--down:#ef5b5b;--warn:#e0a526}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 Inter,system-ui,sans-serif}
+.oculto{display:none!important}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+h1{font-size:20px;margin:0}h1 b{color:var(--acc)}
+.sub{color:var(--sub);font-size:12px}
+button{background:var(--acc);color:#04222a;border:0;border-radius:8px;padding:9px 14px;font:600 14px Inter,sans-serif;cursor:pointer}
+button.sec{background:transparent;color:var(--sub);border:1px solid var(--line)}
+input{width:100%;background:#0b1117;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px;font:14px Inter,sans-serif;margin:4px 0 12px}
+.caja{max-width:340px;margin:12vh auto 0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px}
+.caja h2{margin:0 0 4px;font-size:18px}.caja p{margin:0 0 16px}
+.err{color:var(--down);font-size:13px;min-height:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi .v{font-size:22px;font-weight:700}.kpi .l{color:var(--sub);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.card.activo{border-color:var(--acc)}
+.top{display:flex;justify-content:space-between;align-items:baseline}
+.par{font-weight:700;font-size:16px}.precio{font-variant-numeric:tabular-nums;color:var(--sub)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--sub)}
+.chip.up{color:var(--up);border-color:#2fbf7155}.chip.down{color:var(--down);border-color:#ef5b5b55}
+.bias{font-weight:600}
+.fase{border-radius:8px;padding:8px 10px;background:#0b1117;font-size:13px}
+.fase.f-setup,.fase.f-trade_abierto{border-left:3px solid var(--acc)}
+.fase.f-en_ob,.fase.f-acercandose{border-left:3px solid var(--warn)}
+.fase.f-lejos,.fase.f-sin_ob{border-left:3px solid var(--line);color:var(--sub)}
+.bt{font-size:12px;color:var(--sub)}
+.pos{color:var(--up)}.neg{color:var(--down)}
+h3{font-size:15px;margin:26px 0 10px}
+.tabla{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--sub);font-weight:500}
+</style>
+</head>
+<body>
+
+<div id="v-login" class="caja oculto">
+  <h2>MAS <span style="color:var(--acc)">Trading</span></h2>
+  <p class="sub">Ingresá con tu usuario</p>
+  <label class="sub">Usuario</label><input id="usuario" autocomplete="username">
+  <label class="sub">Contraseña</label><input id="clave" type="password" autocomplete="current-password">
+  <div class="err" id="err-login"></div>
+  <button id="b-login" style="width:100%">Entrar</button>
+</div>
+
+<div id="v-cambio" class="caja oculto">
+  <h2>Elegí tu contraseña</h2>
+  <p class="sub">Es tu primer ingreso: cambiá la contraseña inicial.</p>
+  <label class="sub">Nueva contraseña</label><input id="nueva1" type="password" autocomplete="new-password">
+  <label class="sub">Repetila</label><input id="nueva2" type="password" autocomplete="new-password">
+  <div class="err" id="err-cambio"></div>
+  <button id="b-cambio" style="width:100%">Guardar</button>
+</div>
+
+<div id="v-app" class="wrap oculto">
+  <header>
+    <div><h1>MAS <b>Trading</b></h1><div class="sub" id="generado"></div></div>
+    <button class="sec" id="b-salir">Salir</button>
+  </header>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid" id="pares"></div>
+  <h3>Señales del método</h3>
+  <div class="tabla"><table><thead><tr><th>Abierta</th><th>Par</th><th>Lado</th><th>Tipo</th><th>OB</th><th>Entrada</th><th>Stop</th><th>Objetivo</th><th>Estado</th><th>R</th></tr></thead><tbody id="senales"></tbody></table></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+const CONFIG = window.CONFIG;
+const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const DOMINIO = '@mastrading.app';
+// Supabase pide minimo 6 caracteres: el prefijo deja usar claves cortas sin guardarlas en el codigo.
+const clave = c => 'mt-' + c;
+const $ = id => document.getElementById(id);
+const ver = v => ['v-login','v-cambio','v-app'].forEach(x => $(x).classList.toggle('oculto', x !== v));
+const fecha = s => s ? new Date(s).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+const dec = par => par.includes('JPY') ? 3 : par === 'XAUUSD' ? 2 : 5;
+const num = (v, par) => v == null ? '' : Number(v).toFixed(dec(par));
+const tend = t => `<span class="chip ${t==='alcista'?'up':t==='bajista'?'down':''}">`;
+
+async function inicio(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) return ver('v-login');
+  if (session.user.user_metadata?.cambiar_clave) return ver('v-cambio');
+  ver('v-app'); cargar();
+}
+
+$('b-login').onclick = async () => {
+  $('err-login').textContent = '';
+  const email = $('usuario').value.trim().toLowerCase() + DOMINIO;
+  const { error } = await sb.auth.signInWithPassword({ email, password: clave($('clave').value) });
+  if (error) return $('err-login').textContent = 'Usuario o contraseña incorrectos';
+  inicio();
+};
+$('clave').onkeydown = e => { if (e.key === 'Enter') $('b-login').click(); };
+
+$('b-cambio').onclick = async () => {
+  const a = $('nueva1').value, b = $('nueva2').value;
+  $('err-cambio').textContent = '';
+  if (a.length < 6) return $('err-cambio').textContent = 'Mínimo 6 caracteres';
+  if (a !== b) return $('err-cambio').textContent = 'No coinciden';
+  if (a === '1234') return $('err-cambio').textContent = 'Tiene que ser distinta a la inicial';
+  const { error } = await sb.auth.updateUser({ password: clave(a), data: { cambiar_clave: false } });
+  if (error) return $('err-cambio').textContent = error.message;
+  await sb.auth.refreshSession();
+  inicio();
+};
+
+$('b-salir').onclick = async () => { await sb.auth.signOut(); ver('v-login'); };
+
+const FASES = {
+  trade_abierto: e => `<b>Trade abierto</b> · tipo ${e.tipo}<br>Entrada ${e._n(e.entrada)} · Stop ${e._n(e.sl)} · Obj. ${e._n(e.tp)}`,
+  setup: e => `<b>Setup tipo ${e.tipo}</b> en OB de ${e.tf_ob}<br>Esperando ${e.esperando}`,
+  en_ob: e => `<b>En zona de OB ${e.tf_ob}</b> (${e._n(e.ob[0])}–${e._n(e.ob[1])})<br>Esperando ${e.esperando}`,
+  acercandose: e => `<b>Acercándose al OB ${e.tf_ob}</b> a ${e.distancia_pct.toFixed(2)} %<br>Zona ${e._n(e.ob[0])}–${e._n(e.ob[1])}`,
+  lejos: e => `OB ${e.tf_ob} más cercano a ${e.distancia_pct.toFixed(2)} %<br>Zona ${e._n(e.ob[0])}–${e._n(e.ob[1])}`,
+  sin_ob: () => 'Sin order block válido a favor del sesgo',
+};
+
+async function cargar(){
+  const [{ data: snap, error }, { data: sen }] = await Promise.all([
+    sb.from('snapshot').select('*').eq('id', 1).maybeSingle(),
+    sb.from('senales').select('*').order('abierta', { ascending: false }).limit(100),
+  ]);
+  if (error || !snap) { $('generado').textContent = 'Todavía no hay datos'; return; }
+  const s = snap.data, tot = s.total;
+  $('generado').textContent = `Actualizado ${fecha(s.generado)} · objetivo ${s.tp_r}R, stop en el extremo del retroceso`;
+  $('kpis').innerHTML = [
+    ['Señales cerradas (60 días)', tot.operaciones],
+    ['Acierto', tot.acierto_pct == null ? '–' : tot.acierto_pct + ' %'],
+    ['Resultado', `<span class="${tot.r_total>=0?'pos':'neg'}">${tot.r_total>0?'+':''}${tot.r_total} R</span>`],
+    ['Abiertas ahora', tot.abiertas],
+  ].map(([l,v]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+
+  const orden = { trade_abierto:0, setup:1, en_ob:2, acercandose:3, lejos:4, sin_ob:5 };
+  $('pares').innerHTML = s.pares.slice().sort((a,b) => orden[a.estado.fase]-orden[b.estado.fase]).map(p => {
+    const e = { ...p.estado, _n: v => num(v, p.par) }, bt = p.backtest;
+    const activo = ['trade_abierto','setup','en_ob'].includes(e.fase);
+    return `<div class="card ${activo?'activo':''}">
+      <div class="top"><span class="par">${p.par}</span><span class="precio">${num(p.precio,p.par)}</span></div>
+      <div class="chips">${tend(p.diario)}D ${p.diario}</span>${tend(p.h4.tendencia)}4h ${p.h4.tendencia}</span>${tend(p.h1.tendencia)}1h ${p.h1.tendencia}</span></div>
+      <div class="bias">Sesgo: ${p.bias}</div>
+      <div class="sub">Rango 4h: ${num(p.h4.swing_bajo,p.par)} – ${num(p.h4.swing_alto,p.par)}${p.h4.rompimientos_en_contra ? ' · 1 rompimiento en contra (liquidez)' : ''}</div>
+      <div class="fase f-${e.fase}">${FASES[e.fase](e)}</div>
+      <div class="bt">60 días: ${bt.operaciones} señales · ${bt.acierto_pct ?? '–'} % acierto · <span class="${bt.r_total>=0?'pos':'neg'}">${bt.r_total>0?'+':''}${bt.r_total} R</span></div>
+    </div>`;
+  }).join('');
+
+  $('senales').innerHTML = (sen || []).map(t => `<tr>
+    <td>${fecha(t.abierta)}</td><td>${t.par}</td><td class="${t.d===1?'pos':'neg'}">${t.d===1?'Compra':'Venta'}</td>
+    <td>${t.tipo}</td><td>${t.tf_ob}</td><td>${num(t.entrada,t.par)}</td><td>${num(t.sl,t.par)}</td><td>${num(t.tp,t.par)}</td>
+    <td>${t.estado}</td><td class="${t.r>0?'pos':t.r<0?'neg':''}">${t.r ?? ''}</td></tr>`).join('');
+}
+
+inicio();
+</script>
+</body>
+</html>
