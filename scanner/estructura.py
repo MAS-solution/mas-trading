@@ -62,21 +62,28 @@ def analizar(df: pd.DataFrame, piv: int = 2, arranque: int = 20) -> Resultado:
     b1_i = lo_i = 0    # vela del primer rompimiento en contra / extremo posterior
     lo_v = 0.0
     obs: list[OrderBlock] = []
+    activos: list[OrderBlock] = []
     eventos = []
 
     def crear_ob(desde, hasta, d):
         """Ultima vela contraria entre desde..hasta-1; si no hay, la vela del swing."""
         j = next((k for k in range(hasta - 1, desde - 1, -1) if cl(k, d) < op(k, d)), desde)
-        obs.append(OrderBlock(d, float(l[j]), float(h[j]), t[j], t[hasta]))
+        ob = OrderBlock(d, float(l[j]), float(h[j]), t[j], t[hasta])
+        obs.append(ob)
+        activos.append(ob)
 
     for i in range(arranque, n):
         H, L, C = hi(i, d), lo(i, d), cl(i, d)
 
         # invalidacion de OBs: cierre del otro lado de la zona
-        for ob in obs:
-            if ob.invalidado is None and ob.creado < t[i]:
-                if (ob.d == 1 and c[i] < ob.bajo) or (ob.d == -1 and c[i] > ob.alto):
+        if activos:
+            quedan = []
+            for ob in activos:
+                if ob.creado < t[i] and ((ob.d == 1 and c[i] < ob.bajo) or (ob.d == -1 and c[i] > ob.alto)):
                     ob.invalidado = t[i]
+                else:
+                    quedan.append(ob)
+            activos = quedan
 
         if not definida:
             if c[i] > top or c[i] < bot:
